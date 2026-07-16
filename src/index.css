@@ -1,0 +1,14 @@
+* {
+  box-sizing: border-box;
+}
+
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+}
