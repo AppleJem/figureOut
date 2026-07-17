@@ -1,14 +1,20 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { ImageFile } from './types';
 import {
-  saveDirectoryHandle,
-  loadDirectoryHandle,
+  saveDirectoryHandles,
+  loadDirectoryHandles,
   saveInterval,
   loadInterval,
 } from './storage';
 
 interface Props {
   onStart: (images: ImageFile[], intervalSec: number) => void;
+}
+
+interface FolderEntry {
+  handle: FileSystemDirectoryHandle;
+  name: string;
+  images: ImageFile[];
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -37,50 +43,46 @@ async function readImagesFromHandle(
 
 export default function ConfigPage({ onStart }: Props) {
   const [intervalSec, setIntervalSec] = useState(loadInterval);
-  const [folderName, setFolderName] = useState<string | null>(null);
-  const [imageCount, setImageCount] = useState(0);
+  const [folders, setFolders] = useState<FolderEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(true);
-  const filesRef = useRef<ImageFile[]>([]);
-  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
-  // On mount, try to restore saved folder
+  // On mount, restore saved folders
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const handle = await loadDirectoryHandle();
-        if (!handle || cancelled) {
+        const handles = await loadDirectoryHandles();
+        if (cancelled || handles.length === 0) {
           setRestoring(false);
           return;
         }
 
-        // Check if we still have permission
-        const perm =
-          (await handle.queryPermission({ mode: 'read' })) === 'granted' ||
-          (await handle.requestPermission({ mode: 'read' })) === 'granted';
+        const restored: FolderEntry[] = [];
 
-        if (!perm || cancelled) {
-          setRestoring(false);
-          return;
+        for (const handle of handles) {
+          if (cancelled) break;
+          try {
+            const perm =
+              (await handle.queryPermission({ mode: 'read' })) === 'granted' ||
+              (await handle.requestPermission({ mode: 'read' })) === 'granted';
+            if (!perm) continue;
+
+            const images = await readImagesFromHandle(handle);
+            restored.push({ handle, name: handle.name, images });
+          } catch {
+            // skip handles that are no longer valid
+          }
         }
 
-        const images = await readImagesFromHandle(handle);
-        if (cancelled) return;
-
-        dirHandleRef.current = handle;
-        filesRef.current = images;
-        setFolderName(handle.name);
-        setImageCount(images.length);
-
-        if (images.length === 0) {
-          setError('No image files found in the saved folder.');
+        if (!cancelled) {
+          setFolders(restored);
         }
       } catch {
-        // Saved handle is no longer valid
+        // saved handles failed to load
       }
-      setRestoring(false);
+      if (!cancelled) setRestoring(false);
     })();
 
     return () => {
@@ -88,22 +90,33 @@ export default function ConfigPage({ onStart }: Props) {
     };
   }, []);
 
-  const handlePickFolder = async () => {
+  const persistFolders = (entries: FolderEntry[]) => {
+    saveDirectoryHandles(entries.map((f) => f.handle));
+  };
+
+  const handleAddFolder = async () => {
     setError(null);
     try {
       const dirHandle = await window.showDirectoryPicker();
+      // Don't add duplicates
+      if (folders.some((f) => f.name === dirHandle.name)) {
+        setError(`Folder "${dirHandle.name}" is already added.`);
+        return;
+      }
+
       const images = await readImagesFromHandle(dirHandle);
+      const entry: FolderEntry = {
+        handle: dirHandle,
+        name: dirHandle.name,
+        images,
+      };
 
-      dirHandleRef.current = dirHandle;
-      filesRef.current = images;
-      setFolderName(dirHandle.name);
-      setImageCount(images.length);
-
-      // Persist
-      await saveDirectoryHandle(dirHandle);
+      const updated = [...folders, entry];
+      setFolders(updated);
+      persistFolders(updated);
 
       if (images.length === 0) {
-        setError('No image files found in this folder.');
+        setError(`No images found in "${dirHandle.name}".`);
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
@@ -114,17 +127,34 @@ export default function ConfigPage({ onStart }: Props) {
     }
   };
 
+  const handleRemoveFolder = (index: number) => {
+    const updated = folders.filter((_, i) => i !== index);
+    // Revoke URLs for removed folder
+    for (const img of folders[index].images) {
+      URL.revokeObjectURL(img.url);
+    }
+    setFolders(updated);
+    persistFolders(updated);
+  };
+
+  const totalImages = folders.reduce((sum, f) => sum + f.images.length, 0);
+
   const handleIntervalChange = (sec: number) => {
     setIntervalSec(sec);
     saveInterval(sec);
   };
 
   const handleStart = () => {
-    if (filesRef.current.length === 0) {
-      setError('Please select a folder with images first.');
+    if (folders.length === 0) {
+      setError('Please add at least one folder with images.');
       return;
     }
-    onStart(filesRef.current, intervalSec);
+    // Combine all images from all folders
+    const allImages: ImageFile[] = [];
+    for (const folder of folders) {
+      allImages.push(...folder.images);
+    }
+    onStart(allImages, intervalSec);
   };
 
   const formatTime = (sec: number) => {
@@ -142,24 +172,53 @@ export default function ConfigPage({ onStart }: Props) {
           Image Slideshow
         </h1>
 
-        {/* Folder picker */}
-        <div className="mb-10">
-          <button
-            onClick={handlePickFolder}
-            disabled={restoring}
-            className="w-full py-5 px-6 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-2xl text-white text-lg font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
-          >
-            {restoring
-              ? 'Restoring saved folder…'
-              : folderName
-                ? `📁  ${folderName}`
-                : '📁  Choose Image Folder'}
-          </button>
-          {folderName && !restoring && (
-            <p className="text-base text-zinc-400 mt-3 text-center">
-              {imageCount} image{imageCount !== 1 ? 's' : ''} found
+        {/* Folder list */}
+        <div className="mb-8">
+          {folders.length > 0 && (
+            <ul className="space-y-3 mb-4">
+              {folders.map((folder, i) => (
+                <li
+                  key={folder.name}
+                  className="flex items-center gap-3 bg-zinc-800 rounded-xl px-4 py-3"
+                >
+                  <span className="text-zinc-400 text-lg">📁</span>
+                  <span className="flex-1 text-white text-base truncate">
+                    {folder.name}
+                  </span>
+                  <span className="text-zinc-500 text-sm tabular-nums shrink-0">
+                    {folder.images.length} img
+                  </span>
+                  <button
+                    onClick={() => handleRemoveFolder(i)}
+                    title="Remove folder"
+                    className="text-zinc-500 hover:text-red-400 text-lg leading-none cursor-pointer shrink-0 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Total count */}
+          {!restoring && totalImages > 0 && (
+            <p className="text-base text-zinc-400 mb-3 text-center">
+              {totalImages} image{totalImages !== 1 ? 's' : ''} across{' '}
+              {folders.length} folder{folders.length !== 1 ? 's' : ''}
             </p>
           )}
+
+          <button
+            onClick={handleAddFolder}
+            disabled={restoring}
+            className="w-full py-5 px-6 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 border-dashed rounded-2xl text-white text-lg font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+          >
+            {restoring
+              ? 'Restoring saved folders…'
+              : folders.length === 0
+                ? '+  Add Image Folder'
+                : '+  Add Another Folder'}
+          </button>
         </div>
 
         {/* Interval setting */}
@@ -195,7 +254,7 @@ export default function ConfigPage({ onStart }: Props) {
         {/* Start button */}
         <button
           onClick={handleStart}
-          disabled={filesRef.current.length === 0 || restoring}
+          disabled={totalImages === 0 || restoring}
           className="w-full py-5 px-6 bg-white hover:bg-zinc-200 disabled:bg-zinc-700 disabled:text-zinc-500 text-black text-xl font-bold rounded-2xl transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
           ▶  Start Slideshow
