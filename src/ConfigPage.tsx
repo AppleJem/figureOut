@@ -260,6 +260,17 @@ export default function ConfigPage({ onStart }: Props) {
           ▶  Start Slideshow
         </button>
       </div>
+
+      {/* GitHub link */}
+      <a
+        href="https://github.com/AppleJem/figureOut"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute bottom-6 right-6 text-zinc-600 hover:text-zinc-400 text-sm transition-colors"
+        title="View on GitHub"
+      >
+        GitHub ↗
+      </a>
     </div>
   );
 }
