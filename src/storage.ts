@@ -74,7 +74,7 @@ export function loadInterval(): number {
   const val = localStorage.getItem(INTERVAL_KEY);
   if (val) {
     const n = Number(val);
-    if (n >= 5 && n <= 300) return n;
+    if (n >= 10 && n <= 600) return n;
   }
-  return 5;
+  return 10;
 }

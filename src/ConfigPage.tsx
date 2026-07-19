@@ -229,9 +229,9 @@ export default function ConfigPage({ onStart }: Props) {
           <div className="flex items-center gap-4">
             <input
               type="range"
-              min={5}
-              max={300}
-              step={5}
+              min={10}
+              max={600}
+              step={10}
               value={intervalSec}
               onChange={(e) => handleIntervalChange(Number(e.target.value))}
               className="flex-1 h-2 accent-white cursor-pointer"
@@ -241,8 +241,8 @@ export default function ConfigPage({ onStart }: Props) {
             </span>
           </div>
           <div className="flex justify-between text-sm text-zinc-600 mt-2 px-1">
-            <span>5s</span>
-            <span>5m</span>
+            <span>10s</span>
+            <span>10m</span>
           </div>
         </div>
 
