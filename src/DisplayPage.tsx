@@ -191,10 +191,14 @@ export default function DisplayPage({ images, intervalSec, onBackToConfig }: Pro
   return (
     <div className="h-full w-full relative bg-black overflow-hidden">
       {/* Zoom percentage - top right corner */}
-      <div className="absolute top-0 right-6 pt-2 pointer-events-none">
-        <span className="bg-black/40 backdrop-blur-md rounded-3xl text-white font-mono text-md tabular-nums px-2 py-1 inline-block">
+      <div className="absolute top-0 right-6 pt-2">
+        <button
+          onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}
+          className="bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-3xl text-white font-mono text-md tabular-nums px-2 py-1 inline-block cursor-pointer transition-colors"
+          title="Reset zoom"
+        >
           {Math.round(zoom * 100)}%
-        </span>
+        </button>
       </div>
 
       {/* Image */}
